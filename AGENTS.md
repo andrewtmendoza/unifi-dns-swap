@@ -38,3 +38,7 @@
 - Ruff replaces the usual Python style/import/modernization stack here; Bandit handles security checks. Do not add overlapping lint tools unless there is a concrete gap.
 - CI mirrors the local pre-commit/compile/help checks in `.github/workflows/ci.yml`; keep those in sync.
 - There is currently no test suite or task runner in the repo. Prefer small changes plus the focused verification commands above.
+
+## Maintainer Git Setup
+- Maintainer commits for this repo should use the GitHub no-reply email and SSH signing with `~/.ssh/id_ed25519.pub`, otherwise GitHub may reject the push for email privacy or mark commits as unverified.
+- The intended repo-local git settings are: `user.email=andrewtmendoza@users.noreply.github.com`, `gpg.format=ssh`, `user.signingkey=$HOME/.ssh/id_ed25519.pub`, and `commit.gpgsign=true`.
