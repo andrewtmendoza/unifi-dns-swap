@@ -4,6 +4,12 @@ Set the LAN/DHCP DNS servers for a UniFi network.
 
 This tool updates UniFi LAN/DHCP DNS settings through the UniFi Network API.
 
+## Why This Exists
+
+I use AdGuard Home in my homelab, but sometimes that server needs maintenance. This script gives me a quick way to switch my UniFi LAN/DHCP DNS settings from my local AdGuard Home instance to a cloud-hosted resolver like Cloudflare, Google, or Quad9.
+
+When maintenance is complete and AdGuard Home is back online, I can switch the network back to my local DNS with one command.
+
 Supported provider presets:
 
 - `adguard`: configured by `ADGUARD_DNS_SERVERS` in `.env`
