@@ -94,6 +94,12 @@ def request_json(
         timeout=DEFAULT_TIMEOUT_SECONDS,
         verify=False,  # nosec B501
     )
+    csrf_token = response.headers.get("X-CSRF-Token") or response.headers.get(
+        "X-Updated-Csrf-Token"
+    )
+    if csrf_token:
+        session.headers["X-CSRF-Token"] = csrf_token
+
     try:
         data = response.json()
     except ValueError as exc:
