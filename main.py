@@ -92,7 +92,7 @@ def request_json(
         url,
         json=payload,
         timeout=DEFAULT_TIMEOUT_SECONDS,
-        verify=False,  # nosec B501
+        verify=False,
     )
     csrf_token = response.headers.get("X-CSRF-Token") or response.headers.get(
         "X-Updated-Csrf-Token"

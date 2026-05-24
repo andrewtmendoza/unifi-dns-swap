@@ -30,12 +30,12 @@
 - `set adguard` requires `ADGUARD_DNS_SERVERS` to be configured; the public resolvers stay hardcoded in `main.py`.
 - HTTPS verification is currently hardcoded off with `verify=False` because self-signed UniFi certs are expected. Do not document or implement secure-cert behavior unless you also change the code path.
 - The update flow is: login -> fetch network config -> modify `dhcpd_dns_*` fields on the full network object -> PUT updated network -> GET again to verify.
-- `verify=False` is intentionally suppressed for Bandit with `# nosec B501`; keep that suppression targeted to the request call instead of disabling the rule globally.
+- HTTPS verification is intentionally left at `verify=False`; if Ruff flags that call with `S501`, keep any suppression targeted to the request call instead of disabling the rule globally.
 
 ## Editing Notes
 - If you change provider presets, update `PUBLIC_DNS_PROVIDERS` or the AdGuard env handling in `main.py`, plus the supported-provider list in `README.md` and `.env.template`.
 - If you change CLI command names or options, update `README.md` examples in the same edit.
-- Ruff replaces the usual Python style/import/modernization stack here; Bandit handles security checks. Do not add overlapping lint tools unless there is a concrete gap.
+- Ruff handles the Python style, import, modernization, and security linting here. Do not add overlapping lint tools unless there is a concrete gap.
 - CI mirrors the local pre-commit/compile/help checks in `.github/workflows/ci.yml`; keep those in sync.
 - There is currently no test suite or task runner in the repo. Prefer small changes plus the focused verification commands above.
 

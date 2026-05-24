@@ -14,10 +14,3 @@ repos:
         language: system
         types: [python]
         require_serial: true
-
-      - id: bandit
-        name: bandit
-        entry: uv run bandit -c pyproject.toml
-        language: system
-        types: [python]
-        require_serial: true
