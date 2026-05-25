@@ -13,11 +13,12 @@ PUBLIC_DNS_PROVIDERS = {
     "cloudflare": ["1.1.1.1", "1.0.0.1"],
     "google": ["8.8.8.8", "8.8.4.4"],
 }
-PROVIDER_NAMES = ("adguard", *PUBLIC_DNS_PROVIDERS)
+PROVIDER_NAMES = ("gateway", "custom", *PUBLIC_DNS_PROVIDERS)
 
 DEFAULT_SITE = "default"
 DEFAULT_NETWORK = "Default"
 DEFAULT_TIMEOUT_SECONDS = 30
+DEFAULT_GATEWAY_DNS_SERVER = "192.168.1.1"
 
 load_dotenv()
 
@@ -48,28 +49,41 @@ def get_required_env(name: str) -> str:
     raise UnifiDnsError(f"Missing required environment variable: {name}")
 
 
-def get_adguard_dns_servers(required: bool) -> list[str] | None:
-    value = os.getenv("ADGUARD_DNS_SERVERS", "").strip()
+def get_custom_dns_servers(required: bool) -> list[str] | None:
+    value = os.getenv("CUSTOM_DNS_SERVERS", "").strip()
     if not value:
         if required:
             raise UnifiDnsError(
-                "Missing required environment variable: ADGUARD_DNS_SERVERS"
+                "Missing required environment variable: CUSTOM_DNS_SERVERS"
             )
         return None
-    return parse_dns_servers(value, "ADGUARD_DNS_SERVERS")
+    return parse_dns_servers(value, "CUSTOM_DNS_SERVERS")
+
+
+def get_gateway_dns_servers() -> list[str]:
+    value = os.getenv("GATEWAY_DNS_SERVER", DEFAULT_GATEWAY_DNS_SERVER).strip()
+    return parse_dns_servers(value, "GATEWAY_DNS_SERVER")
 
 
 def get_dns_providers() -> dict[str, list[str]]:
-    providers = dict(PUBLIC_DNS_PROVIDERS)
-    adguard_dns = get_adguard_dns_servers(required=False)
-    if adguard_dns is not None:
-        providers["adguard"] = adguard_dns
+    providers = {"gateway": get_gateway_dns_servers()}
+    custom_dns = get_custom_dns_servers(required=False)
+    if custom_dns is not None:
+        providers["custom"] = custom_dns
+    providers.update(PUBLIC_DNS_PROVIDERS)
     return providers
 
 
 def get_provider_dns(provider: str) -> list[str]:
-    if provider == "adguard":
-        return get_adguard_dns_servers(required=True)
+    if provider == "gateway":
+        return get_gateway_dns_servers()
+    if provider == "custom":
+        custom_dns = get_custom_dns_servers(required=True)
+        if custom_dns is None:
+            raise UnifiDnsError(
+                "Missing required environment variable: CUSTOM_DNS_SERVERS"
+            )
+        return custom_dns
     return PUBLIC_DNS_PROVIDERS[provider]
 
 
