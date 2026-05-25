@@ -15,6 +15,7 @@ PUBLIC_DNS_PROVIDERS = {
 }
 DIRECT_PUBLIC_DNS_PROVIDER_NAMES = tuple(PUBLIC_DNS_PROVIDERS)
 PROVIDER_NAMES = ("gateway", "custom", *PUBLIC_DNS_PROVIDERS)
+UPSTREAM_PROVIDER_NAMES = ("custom", *PUBLIC_DNS_PROVIDERS)
 
 DEFAULT_SITE = "default"
 DEFAULT_NETWORK = "Default"
@@ -27,6 +28,8 @@ app = typer.Typer(
     add_completion=False,
     help="Set the client-facing LAN/DHCP DNS provider for a UniFi network.",
 )
+upstream_app = typer.Typer(help="Manage UniFi WAN/Internet upstream DNS.")
+app.add_typer(upstream_app, name="upstream")
 
 
 class UnifiDnsError(Exception):
@@ -61,6 +64,17 @@ def get_custom_dns_servers(required: bool) -> list[str] | None:
     return parse_dns_servers(value, "CUSTOM_DNS_SERVERS")
 
 
+def get_custom_upstream_dns_servers(required: bool) -> list[str] | None:
+    value = os.getenv("CUSTOM_UPSTREAM_DNS_SERVERS", "").strip()
+    if not value:
+        if required:
+            raise UnifiDnsError(
+                "Missing required environment variable: CUSTOM_UPSTREAM_DNS_SERVERS"
+            )
+        return None
+    return parse_dns_servers(value, "CUSTOM_UPSTREAM_DNS_SERVERS")
+
+
 def get_gateway_dns_servers() -> list[str]:
     value = os.getenv("GATEWAY_DNS_SERVER", DEFAULT_GATEWAY_DNS_SERVER).strip()
     return parse_dns_servers(value, "GATEWAY_DNS_SERVER")
@@ -83,6 +97,17 @@ def get_provider_dns(provider: str) -> list[str]:
         if custom_dns is None:
             raise UnifiDnsError(
                 "Missing required environment variable: CUSTOM_DNS_SERVERS"
+            )
+        return custom_dns
+    return PUBLIC_DNS_PROVIDERS[provider]
+
+
+def get_upstream_provider_dns(provider: str) -> list[str]:
+    if provider == "custom":
+        custom_dns = get_custom_upstream_dns_servers(required=True)
+        if custom_dns is None:
+            raise UnifiDnsError(
+                "Missing required environment variable: CUSTOM_UPSTREAM_DNS_SERVERS"
             )
         return custom_dns
     return PUBLIC_DNS_PROVIDERS[provider]
@@ -183,6 +208,75 @@ def provider_name_for_dns(dns_servers: list[str]) -> str:
     return "custom"
 
 
+def get_wan_configs(
+    session: requests.Session,
+    base_url: str,
+    site: str,
+) -> list[dict[str, Any]]:
+    return [
+        network
+        for network in get_networks(session, base_url, site)
+        if network.get("purpose") == "wan"
+    ]
+
+
+def find_target_wan(
+    wan_configs: list[dict[str, Any]],
+    wan_name: str | None,
+) -> dict[str, Any]:
+    if wan_name is not None:
+        for wan_config in wan_configs:
+            if wan_config.get("name") == wan_name:
+                return wan_config
+        available_names = (
+            ", ".join(
+                sorted(
+                    str(wan.get("name", "")) for wan in wan_configs if wan.get("name")
+                )
+            )
+            or "none"
+        )
+        raise UnifiDnsError(
+            f"Could not find WAN network named {wan_name!r}. Available WAN networks: "
+            f"{available_names}"
+        )
+
+    if len(wan_configs) == 1:
+        return wan_configs[0]
+
+    available_names = (
+        ", ".join(
+            sorted(str(wan.get("name", "")) for wan in wan_configs if wan.get("name"))
+        )
+        or "none"
+    )
+    raise UnifiDnsError(
+        "Multiple WAN networks found: "
+        f"{available_names}. Rerun with --wan NAME to choose the target."
+    )
+
+
+def current_upstream_dns_from_wan_config(wan_config: dict[str, Any]) -> list[str]:
+    dns_servers = []
+    for key in ("wan_dns1", "wan_dns2"):
+        value = str(wan_config.get(key, "")).strip()
+        if value:
+            dns_servers.append(value)
+    return dns_servers
+
+
+def upstream_provider_name_for_dns(dns_servers: list[str]) -> str:
+    providers = dict(PUBLIC_DNS_PROVIDERS)
+    custom_dns = get_custom_upstream_dns_servers(required=False)
+    if custom_dns is not None:
+        providers["custom"] = custom_dns
+
+    for provider, configured_dns in providers.items():
+        if dns_servers == configured_dns:
+            return provider
+    return "custom"
+
+
 def build_updated_network(
     network: dict[str, Any],
     dns_servers: list[str],
@@ -198,6 +292,24 @@ def build_updated_network(
 
     for index, dns_server in enumerate(dns_servers, start=1):
         payload[f"dhcpd_dns_{index}"] = dns_server
+
+    return payload
+
+
+def build_updated_wan_config(
+    wan_config: dict[str, Any],
+    dns_servers: list[str],
+) -> dict[str, Any]:
+    if len(dns_servers) > 2:
+        raise UnifiDnsError("UniFi supports at most 2 upstream DNS servers per WAN")
+
+    payload = dict(wan_config)
+    payload["wan_dns_preference"] = "manual"
+    payload["wan_dns1"] = ""
+    payload["wan_dns2"] = ""
+
+    for index, dns_server in enumerate(dns_servers, start=1):
+        payload[f"wan_dns{index}"] = dns_server
 
     return payload
 
@@ -232,6 +344,18 @@ def get_network(
     if not isinstance(networks, list) or len(networks) != 1:
         raise UnifiDnsError("UniFi API returned an unexpected network payload")
     return networks[0]
+
+
+def get_wan_config(
+    session: requests.Session,
+    base_url: str,
+    site: str,
+    wan_id: str,
+) -> dict[str, Any]:
+    wan_config = get_network(session, base_url, site, wan_id)
+    if wan_config.get("purpose") != "wan":
+        raise UnifiDnsError(f"Network object {wan_id!r} is not a WAN configuration")
+    return wan_config
 
 
 def get_session_config() -> tuple[str, str, str]:
@@ -327,6 +451,92 @@ def apply_provider(provider: str, site: str, network_name: str) -> int:
         session.close()
 
 
+def show_upstream_status(site: str, wan_name: str | None) -> int:
+    host, username, password = get_session_config()
+
+    session = requests.Session()
+    session.headers.update({"Accept": "application/json"})
+
+    try:
+        login(session, host, username, password)
+        wan_config = find_target_wan(get_wan_configs(session, host, site), wan_name)
+        current_dns = current_upstream_dns_from_wan_config(wan_config)
+        provider_name = upstream_provider_name_for_dns(current_dns)
+
+        typer.echo(f"WAN: {wan_config.get('name')}")
+        typer.echo(
+            f"Current upstream DNS: {', '.join(current_dns) or 'automatic/not set'}"
+        )
+        typer.echo(
+            "Upstream DNS preference: "
+            f"{wan_config.get('wan_dns_preference', 'unknown')}"
+        )
+        typer.echo(f"Detected provider: {provider_name}")
+        return 0
+    except (requests.RequestException, UnifiDnsError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        return 1
+    finally:
+        session.close()
+
+
+def apply_upstream_provider(provider: str, site: str, wan_name: str | None) -> int:
+    host, username, password = get_session_config()
+    requested_dns = get_upstream_provider_dns(provider)
+
+    session = requests.Session()
+    session.headers.update({"Accept": "application/json"})
+
+    try:
+        login(session, host, username, password)
+        wan_config = find_target_wan(get_wan_configs(session, host, site), wan_name)
+        wan_id = str(wan_config.get("_id", "")).strip()
+        if not wan_id:
+            raise UnifiDnsError(f"WAN {wan_config.get('name')!r} is missing an _id")
+
+        current_dns = current_upstream_dns_from_wan_config(wan_config)
+        typer.echo(f"WAN: {wan_config.get('name')}")
+        typer.echo(
+            f"Current upstream DNS: {', '.join(current_dns) or 'automatic/not set'}"
+        )
+        typer.echo(f"Requested provider: {provider} ({', '.join(requested_dns)})")
+
+        if (
+            current_dns == requested_dns
+            and wan_config.get("wan_dns_preference") == "manual"
+        ):
+            typer.echo("No changes needed.")
+            return 0
+
+        update_network(
+            session,
+            host,
+            site,
+            wan_id,
+            build_updated_wan_config(wan_config, requested_dns),
+        )
+
+        verified_wan_config = get_wan_config(session, host, site, wan_id)
+        verified_dns = current_upstream_dns_from_wan_config(verified_wan_config)
+        typer.echo(
+            f"Verified upstream DNS: {', '.join(verified_dns) or 'automatic/not set'}"
+        )
+
+        if verified_dns != requested_dns:
+            raise UnifiDnsError(
+                "Verification failed: the read-back upstream DNS values do not "
+                "match the requested provider"
+            )
+
+        typer.echo("Upstream DNS updated successfully.")
+        return 0
+    except (requests.RequestException, UnifiDnsError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        return 1
+    finally:
+        session.close()
+
+
 @app.command(
     "set",
     context_settings={"allow_extra_args": False, "ignore_unknown_options": False},
@@ -406,6 +616,64 @@ def status(
     ),
 ) -> None:
     exit_code = show_status(site, network)
+    if exit_code:
+        raise typer.Exit(code=exit_code)
+
+
+@upstream_app.command("status")
+def upstream_status(
+    site: str = typer.Option(
+        os.getenv("UNIFI_SITE", DEFAULT_SITE),
+        "--site",
+        help="UniFi site name.",
+    ),
+    wan: str | None = typer.Option(
+        None,
+        "--wan",
+        help="WAN network name, such as 'Internet 1'.",
+    ),
+) -> None:
+    exit_code = show_upstream_status(site, wan)
+    if exit_code:
+        raise typer.Exit(code=exit_code)
+
+
+@upstream_app.command(
+    "set",
+    context_settings={"allow_extra_args": False, "ignore_unknown_options": False},
+)
+def set_upstream_provider(
+    provider: str = typer.Argument(
+        ...,
+        metavar="PROVIDER",
+        help=(
+            "WAN/Internet upstream DNS provider preset. "
+            f"Choose one of: {', '.join(sorted(UPSTREAM_PROVIDER_NAMES))}."
+        ),
+        case_sensitive=False,
+    ),
+    site: str = typer.Option(
+        os.getenv("UNIFI_SITE", DEFAULT_SITE),
+        "--site",
+        help="UniFi site name.",
+    ),
+    wan: str | None = typer.Option(
+        None,
+        "--wan",
+        help="WAN network name, such as 'Internet 1'.",
+    ),
+) -> None:
+    provider = provider.lower()
+    if provider not in UPSTREAM_PROVIDER_NAMES:
+        valid_providers = ", ".join(sorted(UPSTREAM_PROVIDER_NAMES))
+        typer.echo(
+            f"Error: unknown upstream provider {provider!r}. Choose one of: "
+            f"{valid_providers}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    exit_code = apply_upstream_provider(provider, site, wan)
     if exit_code:
         raise typer.Exit(code=exit_code)
 

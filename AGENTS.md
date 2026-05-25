@@ -14,26 +14,39 @@
   - `uv run python main.py set quad9`
   - `uv run python main.py set cloudflare`
   - `uv run python main.py set google`
+  - `uv run python main.py upstream status --wan "Internet 1"`
+  - `uv run python main.py upstream set quad9 --wan "Internet 1"`
+  - `uv run python main.py upstream set cloudflare --wan "Internet 1"`
+  - `uv run python main.py upstream set google --wan "Internet 1"`
+  - `uv run python main.py upstream set custom --wan "Internet 1"`
 - Focused verification used in this repo:
   - `uv run pre-commit run --all-files`
   - `uv run python -m py_compile main.py`
   - `uv run python main.py --help`
+  - `uv run python main.py set --help`
   - `uv run python main.py status --help`
+  - `uv run python main.py upstream --help`
+  - `uv run python main.py upstream status --help`
+  - `uv run python main.py upstream set --help`
 
 ## Environment
 - The CLI calls `load_dotenv()` at import time, so a local `.env` file is loaded automatically.
 - Keep secrets out of git: `.env` is ignored; `.env.template` is the tracked template.
-- Current expected variables are `UNIFI_HOST`, `UNIFI_USERNAME`, `UNIFI_PASSWORD`, with optional `UNIFI_SITE`, `UNIFI_NETWORK`, `GATEWAY_DNS_SERVER`, and `CUSTOM_DNS_SERVERS`.
+- Current expected variables are `UNIFI_HOST`, `UNIFI_USERNAME`, `UNIFI_PASSWORD`, with optional `UNIFI_SITE`, `UNIFI_NETWORK`, `GATEWAY_DNS_SERVER`, `CUSTOM_DNS_SERVERS`, and `CUSTOM_UPSTREAM_DNS_SERVERS`.
 
 ## Behavior To Preserve
-- The tool only manages LAN/DHCP DNS. It does not touch WAN DNS.
 - The default target is UniFi site `default` and network `Default` unless overridden by CLI options or env vars.
 - `set gateway` uses `GATEWAY_DNS_SERVER` and defaults to `192.168.1.1`.
 - `set custom` requires `CUSTOM_DNS_SERVERS` to be configured; the public resolvers stay hardcoded in `main.py`.
+- `upstream set custom` requires `CUSTOM_UPSTREAM_DNS_SERVERS` to be configured.
 - Public DNS providers like Quad9, Cloudflare, and Google are direct client-facing LAN DNS in this tool, not upstream/WAN DNS.
 - Direct public DNS providers should require explicit opt-in because they can bypass local DNS such as `*.localdomain`.
+- Upstream commands manage WAN/Internet DNS only and must not touch LAN DHCP fields such as `dhcpd_dns_enabled` or `dhcpd_dns_1` through `dhcpd_dns_4`.
 - HTTPS verification is currently hardcoded off with `verify=False` because self-signed UniFi certs are expected. Do not document or implement secure-cert behavior unless you also change the code path.
 - The update flow is: login -> fetch network config -> modify `dhcpd_dns_*` fields on the full network object -> PUT updated network -> GET again to verify.
+- The upstream endpoint is `/proxy/network/api/s/{site}/rest/networkconf`; the upstream object is a WAN `networkconf` entry where `purpose` is `wan`, and upstream IPv4 DNS is stored in `wan_dns_preference`, `wan_dns1`, and `wan_dns2`.
+- `rest/wanconf` was not the correct endpoint on the current UniFi version and returned `api.err.InvalidObject` during discovery.
+- If multiple WAN objects exist, upstream commands require `--wan NAME` and must not silently pick one.
 - HTTPS verification is intentionally left at `verify=False`; if Ruff flags that call with `S501`, keep any suppression targeted to the request call instead of disabling the rule globally.
 
 ## Editing Notes

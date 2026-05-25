@@ -40,5 +40,17 @@ jobs:
       - name: Show CLI help
         run: uv run python main.py --help
 
+      - name: Show set help
+        run: uv run python main.py set --help
+
       - name: Show status help
         run: uv run python main.py status --help
+
+      - name: Show upstream help
+        run: uv run python main.py upstream --help
+
+      - name: Show upstream status help
+        run: uv run python main.py upstream status --help
+
+      - name: Show upstream set help
+        run: uv run python main.py upstream set --help
