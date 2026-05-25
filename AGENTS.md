@@ -9,7 +9,8 @@
 - Install local git hooks with `uv run pre-commit install`.
 - Main CLI usage:
   - `uv run python main.py status`
-  - `uv run python main.py set adguard`
+  - `uv run python main.py set gateway`
+  - `uv run python main.py set custom`
   - `uv run python main.py set quad9`
   - `uv run python main.py set cloudflare`
   - `uv run python main.py set google`
@@ -22,18 +23,19 @@
 ## Environment
 - The CLI calls `load_dotenv()` at import time, so a local `.env` file is loaded automatically.
 - Keep secrets out of git: `.env` is ignored; `.env.template` is the tracked template.
-- Current expected variables are `UNIFI_HOST`, `UNIFI_USERNAME`, `UNIFI_PASSWORD`, with optional `UNIFI_SITE`, `UNIFI_NETWORK`, and `ADGUARD_DNS_SERVERS`.
+- Current expected variables are `UNIFI_HOST`, `UNIFI_USERNAME`, `UNIFI_PASSWORD`, with optional `UNIFI_SITE`, `UNIFI_NETWORK`, `GATEWAY_DNS_SERVER`, and `CUSTOM_DNS_SERVERS`.
 
 ## Behavior To Preserve
 - The tool only manages LAN/DHCP DNS. It does not touch WAN DNS.
 - The default target is UniFi site `default` and network `Default` unless overridden by CLI options or env vars.
-- `set adguard` requires `ADGUARD_DNS_SERVERS` to be configured; the public resolvers stay hardcoded in `main.py`.
+- `set gateway` uses `GATEWAY_DNS_SERVER` and defaults to `192.168.1.1`.
+- `set custom` requires `CUSTOM_DNS_SERVERS` to be configured; the public resolvers stay hardcoded in `main.py`.
 - HTTPS verification is currently hardcoded off with `verify=False` because self-signed UniFi certs are expected. Do not document or implement secure-cert behavior unless you also change the code path.
 - The update flow is: login -> fetch network config -> modify `dhcpd_dns_*` fields on the full network object -> PUT updated network -> GET again to verify.
 - HTTPS verification is intentionally left at `verify=False`; if Ruff flags that call with `S501`, keep any suppression targeted to the request call instead of disabling the rule globally.
 
 ## Editing Notes
-- If you change provider presets, update `PUBLIC_DNS_PROVIDERS` or the AdGuard env handling in `main.py`, plus the supported-provider list in `README.md` and `.env.template`.
+- If you change provider presets, update `PUBLIC_DNS_PROVIDERS` or the gateway/custom env handling in `main.py`, plus the supported-provider list in `README.md` and `.env.template`.
 - If you change CLI command names or options, update `README.md` examples in the same edit.
 - Ruff handles the Python style, import, modernization, and security linting here. Do not add overlapping lint tools unless there is a concrete gap.
 - CI mirrors the local pre-commit/compile/help checks in `.github/workflows/ci.yml`; keep those in sync.
