@@ -13,6 +13,7 @@ PUBLIC_DNS_PROVIDERS = {
     "cloudflare": ["1.1.1.1", "1.0.0.1"],
     "google": ["8.8.8.8", "8.8.4.4"],
 }
+DIRECT_PUBLIC_DNS_PROVIDER_NAMES = tuple(PUBLIC_DNS_PROVIDERS)
 PROVIDER_NAMES = ("gateway", "custom", *PUBLIC_DNS_PROVIDERS)
 
 DEFAULT_SITE = "default"
@@ -24,7 +25,7 @@ load_dotenv()
 
 app = typer.Typer(
     add_completion=False,
-    help="Set the LAN/DHCP DNS provider for a UniFi network.",
+    help="Set the client-facing LAN/DHCP DNS provider for a UniFi network.",
 )
 
 
@@ -85,6 +86,10 @@ def get_provider_dns(provider: str) -> list[str]:
             )
         return custom_dns
     return PUBLIC_DNS_PROVIDERS[provider]
+
+
+def is_direct_public_dns_provider(provider: str) -> bool:
+    return provider in DIRECT_PUBLIC_DNS_PROVIDER_NAMES
 
 
 def build_base_url(host: str) -> str:
@@ -330,7 +335,11 @@ def set_provider(
     provider: str = typer.Argument(
         ...,
         metavar="PROVIDER",
-        help=f"DNS provider preset: {', '.join(sorted(PROVIDER_NAMES))}.",
+        help=(
+            "LAN/DHCP DNS provider preset. "
+            "Recommended: gateway, custom. "
+            f"Other presets: {', '.join(sorted(PUBLIC_DNS_PROVIDERS))}."
+        ),
         case_sensitive=False,
     ),
     site: str = typer.Option(
@@ -343,6 +352,14 @@ def set_provider(
         "--network",
         help="LAN network name.",
     ),
+    allow_local_dns_breakage: bool = typer.Option(
+        False,
+        "--allow-local-dns-breakage",
+        help=(
+            "Allow handing a public DNS provider directly to clients. "
+            "This bypasses local LAN DNS such as *.localdomain."
+        ),
+    ),
 ) -> None:
     provider = provider.lower()
     if provider not in PROVIDER_NAMES:
@@ -352,6 +369,23 @@ def set_provider(
             err=True,
         )
         raise typer.Exit(code=1)
+
+    if is_direct_public_dns_provider(provider) and not allow_local_dns_breakage:
+        typer.echo(
+            "Error: direct public DNS providers bypass local LAN DNS. "
+            "Use 'gateway' or 'custom' for normal LAN DNS, or rerun with "
+            "--allow-local-dns-breakage if you intentionally want clients to "
+            f"use {provider} directly.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    if is_direct_public_dns_provider(provider):
+        typer.echo(
+            "Warning: this will hand public DNS directly to clients and may "
+            "break local LAN DNS such as *.localdomain.",
+            err=True,
+        )
 
     exit_code = apply_provider(provider, site, network)
     if exit_code:
