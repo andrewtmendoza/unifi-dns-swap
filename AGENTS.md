@@ -30,6 +30,8 @@
 - The default target is UniFi site `default` and network `Default` unless overridden by CLI options or env vars.
 - `set gateway` uses `GATEWAY_DNS_SERVER` and defaults to `192.168.1.1`.
 - `set custom` requires `CUSTOM_DNS_SERVERS` to be configured; the public resolvers stay hardcoded in `main.py`.
+- Public DNS providers like Quad9, Cloudflare, and Google are direct client-facing LAN DNS in this tool, not upstream/WAN DNS.
+- Direct public DNS providers should require explicit opt-in because they can bypass local DNS such as `*.localdomain`.
 - HTTPS verification is currently hardcoded off with `verify=False` because self-signed UniFi certs are expected. Do not document or implement secure-cert behavior unless you also change the code path.
 - The update flow is: login -> fetch network config -> modify `dhcpd_dns_*` fields on the full network object -> PUT updated network -> GET again to verify.
 - HTTPS verification is intentionally left at `verify=False`; if Ruff flags that call with `S501`, keep any suppression targeted to the request call instead of disabling the rule globally.
